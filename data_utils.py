@@ -218,24 +218,6 @@ def split_data_db(db, standardize=False, minmax_scale=False,train_frac=0.8,valid
 def ecfp4_generator(L=2048,use_chirality=True):
     return rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=L, includeChirality=use_chirality)
 
-# function that transforms SMILES strings into ECFPs
-def ecfp_from_smiles(smiles, ecfp_gen):
-    """
-    Inputs:
-    
-    - smiles ... SMILES string of input compound
-    - R ... maximum radius of circular substructures
-    - L ... fingerprint-length
-    - use_features ... if false then use standard DAYLIGHT atom features, if true then use pharmacophoric atom features
-    - use_chirality ... if true then append tetrahedral chirality flags to atom features
-    
-    Outputs:
-    - np.array(feature_list) ... ECFP with length L and maximum radius R
-    """
-    
-    molecule = AllChem.MolFromSmiles(smiles)
-    feature_list = ecfp_gen.GetFingerprintAsNumPy(molecule)
-    return feature_list
 
 def make_dataset_ecfp4(datapath, L=2048, N=None,smiles_col='SMILES_str',pce_col='pce'):
     filetype = datapath.strip().split('.')[-1]
