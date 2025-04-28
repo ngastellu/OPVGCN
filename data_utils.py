@@ -1,6 +1,13 @@
+
 from ase.db import connect
 import pandas as pd
 import numpy as np
+from numpy.random import default_rng
+from rdkit.Chem import AllChem, rdFingerprintGenerator
+import matplotlib.pyplot as plt
+
+
+
 
 def get_row_data(df,mol_type,mol_name):
     if mol_name == 'PC61BM':
@@ -143,3 +150,146 @@ def make_cc_data(path_to_db, normalize=False, minmax_scale=True):
         X /= X.std(axis=0)
  
     return X, y
+
+
+def split_dataset(X,y,train_frac=0.8,valid_frac=0.0, seed=64):
+    """Split data set into training and a test set."""
+
+    assert train_frac + valid_frac < 1.0, f"train_frac ({train_frac}) + valid_frac ({valid_frac}) must be strictly smaller than 1!"
+
+    rng = default_rng(seed)
+
+    N = X.shape[0]
+    shuffled = rng.permutation(N)
+
+    train_frac = 0.8
+    Ntrain = int(N * train_frac)
+
+    Xtrain = X[shuffled[:Ntrain]]
+    ytrain = y[shuffled[:Ntrain]]
+    
+    if valid_frac == 0.0:
+        Xtest = X[shuffled[Ntrain:]]
+        ytest = y[shuffled[Ntrain:]]
+    
+        return Xtrain, ytrain, Xtest, ytest
+    else:
+        Nvalid = int(N * valid_frac)
+        itest0 = Ntrain + Nvalid
+
+        Xvalid = X[shuffled[Ntrain:itest0]]
+        yvalid = y[shuffled[Ntrain:itest0]]
+
+        Xtest = X[shuffled[itest0:]]
+        ytest = y[shuffled[itest0:]]
+
+        return Xtrain, ytrain, Xvalid, yvalid, Xtest, ytest
+
+def standardize(X):
+        X -= X.mean(axis=0)
+        X /= X.std(axis=0)
+        return X
+
+def minmax_scale(X):
+    # Rescales data to be between 0 and 1
+    # Rescale before standardizing?
+        X = (X - np.min(X,axis=0)) / (np.max(X,axis=0) - np.min(X, axis=0))
+        return X
+    
+def split_data_db(db, standardize=False, minmax_scale=False,train_frac=0.8,valid_frac=0.0):
+    # Define inputs to model
+    feature_keys = ['homo', 'lumo', 'et1', 'dhomo', 'dlumo', 'nd', 'edahl', 'edall', 'adlumo', 'pce']
+    data = np.array([[row.id] + [row.data[fk] for fk in feature_keys] for row in db.select()])
+
+    X = data[:,1:-1]
+    y = data[:,-1]
+
+    if standardize:
+        X = standardize(X)
+    
+    if minmax_scale:
+        X = minmax_scale(X)
+
+    Xtrain, ytrain, Xtest, ytest = split_dataset(X,y,train_frac=train_frac, valid_frac=valid_frac)
+
+    return Xtrain, ytrain, Xtest, ytest, feature_keys
+
+# constructs an ECFP4 fingerprint generator
+def ecfp4_generator(L=2048,use_chirality=True):
+    return rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=L, includeChirality=use_chirality)
+
+# function that transforms SMILES strings into ECFPs
+def ecfp_from_smiles(smiles, ecfp_gen):
+    """
+    Inputs:
+    
+    - smiles ... SMILES string of input compound
+    - R ... maximum radius of circular substructures
+    - L ... fingerprint-length
+    - use_features ... if false then use standard DAYLIGHT atom features, if true then use pharmacophoric atom features
+    - use_chirality ... if true then append tetrahedral chirality flags to atom features
+    
+    Outputs:
+    - np.array(feature_list) ... ECFP with length L and maximum radius R
+    """
+    
+    molecule = AllChem.MolFromSmiles(smiles)
+    feature_list = ecfp_gen.GetFingerprintAsNumPy(molecule)
+    return feature_list
+
+def make_dataset_ecfp4(datapath, L=2048, N=None,smiles_col='SMILES_str',pce_col='pce'):
+    filetype = datapath.strip().split('.')[-1]
+    print(filetype)
+    if filetype == 'csv':
+        df = pd.read_csv(datapath, usecols=[smiles_col, pce_col])
+    elif filetype == 'xlsx':
+        df = pd.read_excel(datapath, usecols=[smiles_col, pce_col])
+    else:
+        print(f'File type .{filetype} not  supported. Returning 0 in confusion.')
+        return 0
+
+    if N is None:
+        N = len(df)
+
+    X = np.zeros((N,L), dtype=np.uint8) # molecular fingerprints
+    y = np.zeros(N) # PCEs
+
+    fp_gen = ecfp4_generator(L=L)
+
+    for k, row in df.iterrows(): 
+        if k == N:
+            break
+        # print(f'\n******* {k} *******')
+        try:
+            molecule = AllChem.MolFromSmiles(row[smiles_col])
+            X[k,:] = fp_gen.GetCountFingerprintAsNumPy(molecule)
+        except Exception as e:
+            print(e)
+            print(f'Skipping this row (k = {k})')
+        y[k] = row[pce_col]
+    
+    # if pce_col == 'PCE(%)':
+    #     y /= 100.0
+    
+    return X, y
+
+    
+def plot_predictions(y, y_pred, color=None, markersize=5.0,target_name='',plt_objs=None,show=True):
+    ymin = np.min(y)
+    ymax = np.max(y)
+    reference = np.linspace(ymin, ymax, 100)
+
+    if plt_objs is None:
+        fig, ax = plt.subplots()
+    else:
+        fig, ax = plt_objs
+    
+    ax.plot(reference, reference, 'k--', lw=0.8) # y = x to guide the eye
+    ax.plot(y,y_pred, 'o', c=color, ms=markersize)
+    ax.set_xlabel(f'True {target_name}')
+    ax.set_ylabel(f'Predicted {target_name}')
+
+    if show:
+        plt.show()
+
+
