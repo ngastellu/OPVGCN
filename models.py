@@ -68,31 +68,24 @@ def setup_lgb(Xtrain, ytrain, model_type='test',num_estimators=500,return_preds=
     return model
 
 
+def setup_xgb(Xtrain, ytrain, params):
+    model = XGBRegressor(**params)
+    model.fit(Xtrain, ytrain)
+    return model
+
+
 # Define a function to perform hyperparameter tuning
-def tune_xgb_model(X_train, y_train, X_val, y_val):
+def tune_model(model, param_grid, X_train, y_train):
     """
-    Perform hyperparameter tuning for an XGBoost regressor.
+    Perform hyperparameter tuning for a regressor.
 
     Args:
+        model: Type of gradient boosting model to be used 
         X_train, y_train: Training set.
-        X_val, y_val: Validation set.
 
     Returns:
         best_model: XGBRegressor model with best found parameters.
     """
-    param_grid = {
-        'n_estimators': [100, 200, 300],
-        'max_depth': [4, 6, 8],
-        'learning_rate': [0.01, 0.05, 0.1],
-        'subsample': [0.8, 1.0],
-        'colsample_bytree': [0.8, 1.0]
-    }
-
-    model = XGBRegressor(
-        objective='reg:squarederror',
-        random_state=42,
-        tree_method='hist'  # or 'gpu_hist' if using GPU
-    )
 
     grid_search = GridSearchCV(
         estimator=model,
@@ -107,11 +100,6 @@ def tune_xgb_model(X_train, y_train, X_val, y_val):
 
     print(f"Best parameters found: {grid_search.best_params_}")
     best_model = grid_search.best_estimator_
-
-    # Evaluate on validation set
-    val_preds = best_model.predict(X_val)
-    val_rmse = mean_squared_error(y_val, val_preds, squared=False)
-    print(f"Validation RMSE: {val_rmse:.4f}")
 
     return best_model
 
